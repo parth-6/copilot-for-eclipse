@@ -222,7 +222,8 @@ public class AddByokModelDialog extends TrayDialog {
   private ByokModel buildModel() {
     ByokModel model = new ByokModel();
     model.setModelId(modelIdText.getText().trim());
-    model.setProviderName(providerName);
+    model.setProviderName(ByokModelProvider.isNvidiaNim(providerName)
+        ? ByokModelProvider.getNvidiaNimProviderName() : providerName);
     model.setRegistered(true);
     model.setCustomModel(true);
 
@@ -231,6 +232,8 @@ public class AddByokModelDialog extends TrayDialog {
         && apiKeyText != null) {
       model.setDeploymentUrl(deploymentUrlText.getText().trim());
       model.setApiKey(apiKeyText.getText().trim());
+    } else if (ByokModelProvider.isNvidiaNim(providerName)) {
+      model.setDeploymentUrl(ByokModelProvider.getNvidiaNimEndpoint());
     }
 
     // Set capabilities

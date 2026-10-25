@@ -32,6 +32,7 @@ import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
+import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Group;
@@ -45,8 +46,10 @@ import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 
 import com.microsoft.copilot.eclipse.core.AuthStatusManager;
+import com.microsoft.copilot.eclipse.core.Constants;
 import com.microsoft.copilot.eclipse.core.CopilotCore;
 import com.microsoft.copilot.eclipse.core.FeatureFlags;
+import com.microsoft.copilot.eclipse.core.completion.ByokInlineCompletionSettings;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokModel;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokModelProvider;
 import com.microsoft.copilot.eclipse.ui.CopilotImages;
@@ -99,6 +102,9 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
   private Button reloadButton;
   private Button changeApiButton;
   private Button deleteApiButton;
+  private Button useByokInlineCompletionsButton;
+  private Combo inlineCompletionModelCombo;
+  private List<ByokModel> inlineCompletionModels = new ArrayList<>();
 
   // ========================= Lifecycle =========================
   @Override
@@ -252,7 +258,92 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
     container.setLayoutData(containerData);
 
     createContentArea(container);
+    createInlineCompletionGroup(root);
     return root;
+  }
+
+  private void createInlineCompletionGroup(Composite parent) {
+    Group inlineGroup = new Group(parent, SWT.NONE);
+    inlineGroup.setText(Messages.preferences_page_byok_inline_completions_title);
+    inlineGroup.setLayout(new GridLayout(2, false));
+    inlineGroup.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false));
+
+    Label description = new Label(inlineGroup, SWT.WRAP);
+    description.setText(Messages.preferences_page_byok_inline_completions_description);
+    description.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
+
+    useByokInlineCompletionsButton = new Button(inlineGroup, SWT.CHECK);
+    useByokInlineCompletionsButton.setText(Messages.preferences_page_byok_inline_completions_enabled);
+    useByokInlineCompletionsButton.setSelection(ByokInlineCompletionSettings.isEnabled());
+    useByokInlineCompletionsButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
+    useByokInlineCompletionsButton.addListener(SWT.Selection, event -> updateInlineCompletionControls());
+
+    Label modelLabel = new Label(inlineGroup, SWT.NONE);
+    modelLabel.setText(Messages.preferences_page_byok_inline_completions_model);
+    inlineCompletionModelCombo = new Combo(inlineGroup, SWT.DROP_DOWN | SWT.READ_ONLY);
+    inlineCompletionModelCombo.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+    rebuildInlineCompletionModels();
+    updateInlineCompletionControls();
+  }
+
+  private void rebuildInlineCompletionModels() {
+    if (inlineCompletionModelCombo == null || inlineCompletionModelCombo.isDisposed()) {
+      return;
+    }
+    String selectedProvider = ByokInlineCompletionSettings.getProviderName();
+    String selectedModel = ByokInlineCompletionSettings.getModelId();
+    inlineCompletionModels = byProviderModels.values().stream().flatMap(List::stream)
+      .filter(ByokModel::isRegistered).filter(this::isAvailableForInlineCompletion).toList();
+    inlineCompletionModelCombo.removeAll();
+    int selectedIndex = -1;
+    for (int index = 0; index < inlineCompletionModels.size(); index++) {
+      ByokModel model = inlineCompletionModels.get(index);
+      String displayName = model.getModelCapabilities() != null
+          ? model.getModelCapabilities().getName() : null;
+      if (StringUtils.isBlank(displayName)) {
+        displayName = model.getModelId();
+      }
+      inlineCompletionModelCombo.add(displayName + " (" + model.getProviderName() + ")");
+      if (model.getProviderName().equals(selectedProvider) && model.getModelId().equals(selectedModel)) {
+        selectedIndex = index;
+      }
+    }
+    if (selectedIndex >= 0) {
+      inlineCompletionModelCombo.select(selectedIndex);
+    } else if (!inlineCompletionModels.isEmpty()) {
+      inlineCompletionModelCombo.select(0);
+    }
+    updateInlineCompletionControls();
+  }
+
+  private boolean isAvailableForInlineCompletion(ByokModel model) {
+    if (ByokModelProvider.isOllama(model.getProviderName())) {
+      return StringUtils.isNotBlank(byProviderUrls.get(model.getProviderName()));
+    }
+    return model.isCustomModel() && !ByokModelProvider.isBuiltInProvider(model.getProviderName())
+        && StringUtils.isNotBlank(model.getDeploymentUrl());
+  }
+
+  private void updateInlineCompletionControls() {
+    if (inlineCompletionModelCombo == null || inlineCompletionModelCombo.isDisposed()) {
+      return;
+    }
+    inlineCompletionModelCombo.setEnabled(useByokInlineCompletionsButton.getSelection()
+        && !inlineCompletionModels.isEmpty());
+  }
+
+  @Override
+  public boolean performOk() {
+    boolean enabled = useByokInlineCompletionsButton.getSelection()
+        && inlineCompletionModelCombo.getSelectionIndex() >= 0;
+    if (enabled) {
+      ByokModel selectedModel = inlineCompletionModels.get(inlineCompletionModelCombo.getSelectionIndex());
+      ByokInlineCompletionSettings.setSelection(true, selectedModel.getProviderName(), selectedModel.getModelId());
+    } else {
+      ByokInlineCompletionSettings.setSelection(false, ByokInlineCompletionSettings.getProviderName(),
+          ByokInlineCompletionSettings.getModelId());
+    }
+    return super.performOk();
   }
 
   private Composite createContentArea(Composite parent) {
@@ -560,6 +651,7 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
       }
       viewer.setInput(byProviderModels);
       restoreExpansionState();
+      rebuildInlineCompletionModels();
       // Re-enable drawing after update
       viewer.getControl().setRedraw(true);
       refreshButtonsEnabled();
@@ -592,6 +684,7 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
             ByokModelProvider.isNvidiaNim(providerName) ? ByokModelProvider.NVIDIA_NIM.getDisplayName() : providerName,
             url));
       }
+      rebuildInlineCompletionModels();
       refreshButtonsEnabled();
     }
   }
@@ -725,7 +818,11 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
         return;
       }
       if (ByokModelProvider.isNvidiaNim(providerName)) {
-        openAddNvidiaNimUrlDialog();
+        if (byProviderApiKeys.containsKey(providerName)) {
+          openAddNvidiaNimModelDialog();
+        } else {
+          openAddNvidiaNimUrlDialog();
+        }
         return;
       }
       boolean hasApiKey = byProviderApiKeys.containsKey(providerName);
@@ -946,6 +1043,21 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
       if (apiKey != null && StringUtils.isNotBlank(apiKey) && byokService != null) {
         executeAsyncProviderOperation(providerName, byokService.configureNvidiaNim(apiKey),
             "Failed to configure NVIDIA NIM endpoint");
+      }
+    });
+    dialog.open();
+  }
+
+  private void openAddNvidiaNimModelDialog() {
+    String providerName = ByokModelProvider.NVIDIA_NIM.getDisplayName();
+    AddByokModelDialog dialog = new AddByokModelDialog(getShell(), providerName, model -> {
+      if (model != null && byokService != null) {
+        byokService.saveModel(model).whenComplete((result, throwable) -> {
+          if (throwable != null) {
+            CopilotCore.LOGGER.error("Failed to add NVIDIA NIM model: ", throwable);
+            handleError("Failed to add NVIDIA NIM model: " + throwable.getMessage());
+          }
+        });
       }
     });
     dialog.open();

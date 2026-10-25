@@ -275,16 +275,22 @@ public class ByokService extends ChatBaseService {
    */
   public CompletableFuture<Void> deleteNvidiaNimConfig() {
     String providerName = ByokModelProvider.getNvidiaNimProviderName();
-    ByokModel model = new ByokModel();
-    model.setProviderName(providerName);
-    model.setModelId("nvidia/nemotron-3-ultra-550b-a55b");
-    return lsConnection.deleteByokModel(model).thenCompose(modelResponse -> {
-      if (!modelResponse.isSuccess()) {
-        String message = modelResponse.getMessage() != null ? modelResponse.getMessage()
-            : "Failed to delete NVIDIA NIM model";
-        return CompletableFuture.failedFuture(new IllegalStateException(message));
+    return lsConnection.listByokModels(new ByokListModelParams(providerName, false)).thenCompose(modelsResponse -> {
+      List<ByokModel> models = modelsResponse == null || modelsResponse.getModels() == null
+          ? List.of() : modelsResponse.getModels();
+      CompletableFuture<Void> deleteModels = CompletableFuture.completedFuture(null);
+      for (ByokModel model : models) {
+        if (model != null && ByokModelProvider.isNvidiaNim(model.getProviderName())) {
+          deleteModels = deleteModels.thenCompose(unused -> lsConnection.deleteByokModel(model).thenAccept(response -> {
+            if (!response.isSuccess()) {
+              String message = response.getMessage() != null ? response.getMessage()
+                  : "Failed to delete NVIDIA NIM model";
+              throw new IllegalStateException(message);
+            }
+          }));
+        }
       }
-      return lsConnection.deleteByokApiKey(new ByokApiKey(providerName, null));
+      return deleteModels.thenCompose(unused -> lsConnection.deleteByokApiKey(new ByokApiKey(providerName, null)));
     }).thenCompose(keyResponse -> {
       if (!keyResponse.isSuccess()) {
         String message = keyResponse.getMessage() != null ? keyResponse.getMessage()

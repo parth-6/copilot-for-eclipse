@@ -51,6 +51,18 @@ public enum ByokModelProvider {
   }
 
   /**
+   * Returns whether the provider is one of the built-in providers rather than a custom endpoint.
+   */
+  public static boolean isBuiltInProvider(String providerName) {
+    for (ByokModelProvider provider : values()) {
+      if (provider != NVIDIA_NIM && provider.getDisplayName().equals(providerName)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Returns the provider key used by the bundled agent's custom endpoint configuration.
    */
   public static String getNvidiaNimProviderName() {

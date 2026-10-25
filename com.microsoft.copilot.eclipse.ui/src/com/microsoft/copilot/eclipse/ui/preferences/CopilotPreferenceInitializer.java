@@ -26,6 +26,9 @@ public class CopilotPreferenceInitializer extends AbstractPreferenceInitializer 
   public void initializeDefaultPreferences() {
     IPreferenceStore pref = CopilotUi.getPlugin().getPreferenceStore();
     pref.setDefault(Constants.AUTO_SHOW_COMPLETION, true);
+    pref.setDefault(Constants.BYOK_INLINE_COMPLETION_ENABLED, false);
+    pref.setDefault(Constants.BYOK_INLINE_COMPLETION_PROVIDER, "");
+    pref.setDefault(Constants.BYOK_INLINE_COMPLETION_MODEL, "");
     pref.setDefault(Constants.ENABLE_NEXT_EDIT_SUGGESTION, false);
     pref.setDefault(Constants.ENABLE_STRICT_SSL, true);
     pref.setDefault(Constants.PROXY_KERBEROS_SP, "");

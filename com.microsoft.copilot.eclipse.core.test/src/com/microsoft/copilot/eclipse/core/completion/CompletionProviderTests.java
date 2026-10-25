@@ -3,7 +3,9 @@
 
 package com.microsoft.copilot.eclipse.core.completion;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -11,6 +13,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
 import java.io.File;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -25,12 +28,16 @@ import org.eclipse.core.runtime.jobs.IJobManager;
 import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.lsp4j.Position;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.microsoft.copilot.eclipse.core.AuthStatusManager;
+import com.microsoft.copilot.eclipse.core.lsp.protocol.CompletionDocument;
+import com.microsoft.copilot.eclipse.core.lsp.protocol.CompletionParams;
+import com.microsoft.copilot.eclipse.core.lsp.protocol.CompletionResult;
 import com.microsoft.copilot.eclipse.core.lsp.CopilotLanguageServerConnection;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.CompletionItem;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.CompletionResult;
@@ -38,6 +45,9 @@ import com.microsoft.copilot.eclipse.core.lsp.protocol.CopilotStatusResult;
 
 @ExtendWith(MockitoExtension.class)
 class CompletionProviderTests {
+
+  private static final String BYOK_PROVIDER = "MyCustomEndpoint";
+  private static final String BYOK_MODEL = "completion-model";
 
   @Mock
   private CopilotLanguageServerConnection mockLsConnection;
@@ -47,6 +57,61 @@ class CompletionProviderTests {
 
   @Mock
   private CompletionListener mockListener;
+
+  @AfterEach
+  void resetByokInlineCompletionSettings() {
+    ByokInlineCompletionSettings.setSelection(false, "", "");
+  }
+
+  @Test
+  void testRequestCompletionUsesSelectedByokModelWhenOptedIn() throws Exception {
+    ByokInlineCompletionSettings.setSelection(true, BYOK_PROVIDER, BYOK_MODEL);
+    ByokInlineCompletionClient byokClient = mock(ByokInlineCompletionClient.class);
+    CompletionResult expectedResult = new CompletionResult(List.of(mock(CompletionItem.class)));
+    when(byokClient.complete(any(), any(), any(), any(), any())).thenReturn(expectedResult);
+    CompletionProvider completionProvider = new CompletionProvider(mockLsConnection, mockStatusManager, byokClient);
+
+    CompletionResult result = completionProvider.requestCompletion(
+        new CompletionParams(new CompletionDocument("file:///Sample.java", new Position(0, 0))), "class A {}",
+        "Sample.java");
+
+    assertSame(expectedResult, result);
+    verify(byokClient).complete(any(), org.mockito.ArgumentMatchers.eq("class A {}"),
+        org.mockito.ArgumentMatchers.eq("Sample.java"), org.mockito.ArgumentMatchers.eq(BYOK_PROVIDER),
+        org.mockito.ArgumentMatchers.eq(BYOK_MODEL));
+    verify(mockLsConnection, never()).getCompletions(any());
+  }
+
+  @Test
+  void testRequestCompletionUsesCopilotByDefault() throws Exception {
+    ByokInlineCompletionSettings.setSelection(false, "", "");
+    CompletionResult expectedResult = new CompletionResult(List.of(mock(CompletionItem.class)));
+    when(mockLsConnection.getCompletions(any())).thenReturn(CompletableFuture.completedFuture(expectedResult));
+    ByokInlineCompletionClient byokClient = mock(ByokInlineCompletionClient.class);
+    CompletionProvider completionProvider = new CompletionProvider(mockLsConnection, mockStatusManager, byokClient);
+
+    CompletionResult result = completionProvider.requestCompletion(
+        new CompletionParams(new CompletionDocument("file:///Sample.java", new Position(0, 0))), "class A {}",
+        "Sample.java");
+
+    assertSame(expectedResult, result);
+    verify(mockLsConnection).getCompletions(any());
+    verify(byokClient, never()).complete(any(), any(), any(), any(), any());
+  }
+
+  @Test
+  void testByokFailureDoesNotFallBackToCopilotCompletion() throws Exception {
+    ByokInlineCompletionSettings.setSelection(true, BYOK_PROVIDER, BYOK_MODEL);
+    ByokInlineCompletionClient byokClient = mock(ByokInlineCompletionClient.class);
+    when(byokClient.complete(any(), any(), any(), any(), any())).thenThrow(new IOException("Provider unavailable"));
+    CompletionProvider completionProvider = new CompletionProvider(mockLsConnection, mockStatusManager, byokClient);
+
+    assertThrows(IOException.class, () -> completionProvider.requestCompletion(
+        new CompletionParams(new CompletionDocument("file:///Sample.java", new Position(0, 0))), "class A {}",
+        "Sample.java"));
+
+    verify(mockLsConnection, never()).getCompletions(any());
+  }
 
   @Test
   void testShouldGetLocationUriForRemoteFileOnCompletion()

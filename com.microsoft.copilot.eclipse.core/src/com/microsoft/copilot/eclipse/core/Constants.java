@@ -21,6 +21,9 @@ public class Constants {
 
   public static final String PLUGIN_ID = "com.microsoft.copilot.eclipse";
   public static final String AUTO_SHOW_COMPLETION = "enableAutoCompletions";
+  public static final String BYOK_INLINE_COMPLETION_ENABLED = "byokInlineCompletionEnabled";
+  public static final String BYOK_INLINE_COMPLETION_PROVIDER = "byokInlineCompletionProvider";
+  public static final String BYOK_INLINE_COMPLETION_MODEL = "byokInlineCompletionModel";
   public static final String ENABLE_NEXT_EDIT_SUGGESTION = "enableNextEditSuggestion";
   public static final String ENABLE_STRICT_SSL = "enableStrictSsl";
   public static final String PROXY_KERBEROS_SP = "proxyKerberosSp";

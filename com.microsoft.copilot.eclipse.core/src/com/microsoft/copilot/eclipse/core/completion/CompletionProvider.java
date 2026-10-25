@@ -41,6 +41,8 @@ import com.microsoft.copilot.eclipse.core.utils.FileUtils;
  */
 public class CompletionProvider {
 
+  private static final int COMPLETION_TIMEOUT_MILLIS = 5000;
+
   /**
    * The job family for completion jobs, can be used to find out this completion job.
    */
@@ -60,17 +62,34 @@ public class CompletionProvider {
   private Set<CompletionListener> completionListeners;
   private FormatOptionProvider formatOptionProvider;
   private AuthStatusManager statusManager;
+  private CopilotLanguageServerConnection lsConnection;
+  private ByokInlineCompletionClient byokInlineCompletionClient;
   private boolean usingCodeMining;
 
   /**
    * Creates a new completion provider.
    */
   public CompletionProvider(CopilotLanguageServerConnection lsConnection, AuthStatusManager statusManager) {
+    this(lsConnection, statusManager, new ByokInlineCompletionClient(lsConnection));
+  }
+
+  CompletionProvider(CopilotLanguageServerConnection lsConnection, AuthStatusManager statusManager,
+      ByokInlineCompletionClient byokInlineCompletionClient) {
+    this.lsConnection = lsConnection;
     this.statusManager = statusManager;
+    this.byokInlineCompletionClient = byokInlineCompletionClient;
     this.completionJob = new CompletionJob(lsConnection);
     this.completionListeners = new CopyOnWriteArraySet<>();
     this.formatOptionProvider = CopilotCore.getPlugin().getFormatOptionProvider();
     this.usingCodeMining = IdeCapabilities.canUseCodeMining();
+  }
+
+  CompletionResult requestCompletion(CompletionParams params, String source, String fileName) throws Exception {
+    if (ByokInlineCompletionSettings.isEnabled()) {
+      return byokInlineCompletionClient.complete(params.getDoc(), source, fileName,
+          ByokInlineCompletionSettings.getProviderName(), ByokInlineCompletionSettings.getModelId());
+    }
+    return lsConnection.getCompletions(params).get(COMPLETION_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
   }
 
   /**
@@ -129,8 +148,6 @@ public class CompletionProvider {
    * TODO: public for testing.
    */
   public class CompletionJob extends Job {
-
-    private static final int COMPLETION_TIMEOUT_MILLIS = 5000;
 
     private CopilotLanguageServerConnection lsConnection;
     private CompletionParams params;
@@ -193,12 +210,23 @@ public class CompletionProvider {
 
       // If completion is enabled, request completion from LS
       if (this.enableCompletion) {
+        boolean useByok = ByokInlineCompletionSettings.isEnabled();
         try {
-          CompletionResult result = this.lsConnection.getCompletions(params).get(COMPLETION_TIMEOUT_MILLIS,
-              TimeUnit.MILLISECONDS);
+          String source = "";
+          String fileName = "code";
+          if (useByok) {
+            IDocument document = LSPEclipseUtils.getDocument(this.file);
+            if (document == null) {
+              this.completions = List.of();
+              return Status.OK_STATUS;
+            }
+            source = document.get();
+            fileName = this.file.getName();
+          }
+          CompletionResult result = CompletionProvider.this.requestCompletion(params, source, fileName);
 
           // Check if we should fallback to NES (empty or useless completions)
-          if (this.enableNes && file instanceof IFile f && shouldFallbackToNes(result)) {
+          if (!useByok && this.enableNes && file instanceof IFile f && shouldFallbackToNes(result)) {
             fetchNes(f, params.getDoc().getPosition());
             return Status.OK_STATUS;
           }
@@ -213,6 +241,9 @@ public class CompletionProvider {
         } catch (TimeoutException e) {
           CopilotCore.LOGGER.info("Completion request timed out after " + COMPLETION_TIMEOUT_MILLIS + " milliseconds");
           return Status.CANCEL_STATUS;
+        } catch (Exception e) {
+          this.completions = List.of();
+          CopilotCore.LOGGER.error("BYOK inline completion request failed", e);
         }
       } else if (this.enableNes && file instanceof IFile f) {
         // Completion disabled but NES enabled: fetch NES directly

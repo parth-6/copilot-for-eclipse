@@ -14,6 +14,10 @@ public class Messages extends NLS {
   public static String preferences_page_completions_autoShowCompletion;
   public static String preferences_page_byok_title;
   public static String preferences_page_byok_description;
+  public static String preferences_page_byok_inline_completions_title;
+  public static String preferences_page_byok_inline_completions_description;
+  public static String preferences_page_byok_inline_completions_enabled;
+  public static String preferences_page_byok_inline_completions_model;
   public static String preferences_page_byok_signin_description;
   public static String preferences_page_loading;
   public static String preferences_page_byok_provider_title;

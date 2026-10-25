@@ -3,7 +3,7 @@
 
 package com.microsoft.copilot.eclipse.ui.chat.services;
 
- import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -185,6 +185,29 @@ class ByokServiceTests {
   }
 
   @Test
+  void testSaveAdditionalNvidiaNimModelId() {
+    String additionalModelId = "nvidia/nemotron-3.5-super-120b-a12b";
+    ByokModel model = new ByokModel();
+    model.setProviderName(NVIDIA_NIM_PROVIDER);
+    model.setModelId(additionalModelId);
+    model.setRegistered(true);
+    model.setCustomModel(true);
+    model.setDeploymentUrl(NVIDIA_NIM_ENDPOINT);
+    when(lsConnection.saveByokModel(any())).thenReturn(completedStatus());
+    ByokListModelResponse modelsResponse = new ByokListModelResponse();
+    modelsResponse.setModels(List.of(model));
+    when(lsConnection.listByokModels(any())).thenReturn(CompletableFuture.completedFuture(modelsResponse));
+
+    byokService.saveModel(model).join();
+
+    ArgumentCaptor<ByokModel> modelCaptor = ArgumentCaptor.forClass(ByokModel.class);
+    verify(lsConnection).saveByokModel(modelCaptor.capture());
+    assertEquals(additionalModelId, modelCaptor.getValue().getModelId());
+    assertEquals(NVIDIA_NIM_PROVIDER, modelCaptor.getValue().getProviderName());
+    assertEquals(NVIDIA_NIM_ENDPOINT, modelCaptor.getValue().getDeploymentUrl());
+  }
+
+  @Test
   void testConfigureNvidiaNim_apiKeyFailureDoesNotSaveModel() {
     when(lsConnection.saveByokCustomProviderConfig(any()))
         .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("Invalid API key")));
@@ -211,19 +234,26 @@ class ByokServiceTests {
   void testDeleteNvidiaNimConfig_removesModelAndApiKey() {
     when(lsConnection.deleteByokModel(any())).thenReturn(completedStatus());
     when(lsConnection.deleteByokApiKey(any())).thenReturn(completedStatus());
+    ByokModel firstModel = new ByokModel();
+    firstModel.setProviderName(NVIDIA_NIM_PROVIDER);
+    firstModel.setModelId("nvidia/nemotron-3-ultra-550b-a55b");
+    ByokModel secondModel = new ByokModel();
+    secondModel.setProviderName(NVIDIA_NIM_PROVIDER);
+    secondModel.setModelId("nvidia/nemotron-3-super-120b-a12b");
     when(lsConnection.listByokApiKeys(any(ByokApiKey.class)))
         .thenReturn(CompletableFuture.completedFuture(new ByokListApiKeyResponse(List.of())));
     when(lsConnection.listByokProviderConfigs(any(ByokListProviderConfigParams.class)))
         .thenReturn(CompletableFuture.completedFuture(new ByokListProviderConfigResponse(List.of())));
-    when(lsConnection.listByokModels(any())).thenReturn(CompletableFuture.completedFuture(new ByokListModelResponse()));
+    ByokListModelResponse modelsResponse = new ByokListModelResponse();
+    modelsResponse.setModels(List.of(firstModel, secondModel));
+    when(lsConnection.listByokModels(any())).thenReturn(CompletableFuture.completedFuture(modelsResponse));
     byokService.loadProviderUrls().join();
     clearInvocations(preferencePage);
 
     byokService.deleteNvidiaNimConfig().join();
 
-    verify(lsConnection).deleteByokModel(argThat(model ->
-        NVIDIA_NIM_PROVIDER.equals(model.getProviderName())
-            && "nvidia/nemotron-3-ultra-550b-a55b".equals(model.getModelId())));
+    verify(lsConnection, times(2)).deleteByokModel(argThat(model ->
+      NVIDIA_NIM_PROVIDER.equals(model.getProviderName()) && model.getModelId() != null));
     verify(lsConnection).deleteByokApiKey(argThat(key -> NVIDIA_NIM_PROVIDER.equals(key.getProviderName())));
     verify(preferencePage, timeout(WAIT_TIMEOUT_MS).atLeastOnce())
       .updateProviderUrlsDisplay(argThat(Map::isEmpty));
