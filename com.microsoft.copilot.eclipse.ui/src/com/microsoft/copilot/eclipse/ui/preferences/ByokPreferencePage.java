@@ -552,7 +552,9 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
           String providerName = entry.getKey();
           List<ByokModel> models = entry.getValue();
           if (models != null) {
-            byProviderModels.computeIfAbsent(providerName, k -> new ArrayList<>()).addAll(models);
+            String displayName = ByokModelProvider.isNvidiaNim(providerName)
+                ? ByokModelProvider.NVIDIA_NIM.getDisplayName() : providerName;
+            byProviderModels.computeIfAbsent(displayName, k -> new ArrayList<>()).addAll(models);
           }
         }
       }
@@ -571,7 +573,9 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
     if (viewer != null && !viewer.getControl().isDisposed()) {
       byProviderApiKeys.clear();
       if (apiKeys != null) {
-        byProviderApiKeys.putAll(apiKeys);
+        apiKeys.forEach((providerName, apiKey) -> byProviderApiKeys.put(
+            ByokModelProvider.isNvidiaNim(providerName) ? ByokModelProvider.NVIDIA_NIM.getDisplayName() : providerName,
+            apiKey));
       }
       refreshButtonsEnabled();
     }
@@ -584,7 +588,9 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
     if (viewer != null && !viewer.getControl().isDisposed()) {
       byProviderUrls.clear();
       if (providerUrls != null) {
-        byProviderUrls.putAll(providerUrls);
+        providerUrls.forEach((providerName, url) -> byProviderUrls.put(
+            ByokModelProvider.isNvidiaNim(providerName) ? ByokModelProvider.NVIDIA_NIM.getDisplayName() : providerName,
+            url));
       }
       refreshButtonsEnabled();
     }
@@ -718,6 +724,10 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
         openAddOllamaUrlDialog();
         return;
       }
+      if (ByokModelProvider.isNvidiaNim(providerName)) {
+        openAddNvidiaNimUrlDialog();
+        return;
+      }
       boolean hasApiKey = byProviderApiKeys.containsKey(providerName);
       if (!hasApiKey && ByokModelProvider.requiresApiKey(providerName)) {
         AddApiKeyDialog apiKeyDialog = new AddApiKeyDialog(getShell(), providerName, apiKey -> {
@@ -842,6 +852,10 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
       openAddOllamaUrlDialog();
       return;
     }
+    if (ByokModelProvider.isNvidiaNim(providerName)) {
+      openAddNvidiaNimUrlDialog();
+      return;
+    }
     String apiKey = byProviderApiKeys.get(providerName);
     if (!ByokModelProvider.isAzure(providerName)) {
       final String finalProviderName = providerName;
@@ -875,6 +889,13 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
       if (showDeleteEndpointConfirmationDialog(providerName)) {
         executeAsyncProviderOperation(finalProviderName, byokService.deleteOllamaConfig(),
             "Failed to delete Ollama endpoint");
+      }
+      return;
+    }
+    if (ByokModelProvider.isNvidiaNim(providerName)) {
+      if (showDeleteEndpointConfirmationDialog(providerName)) {
+        executeAsyncProviderOperation(finalProviderName, byokService.deleteNvidiaNimConfig(),
+            "Failed to delete NVIDIA NIM endpoint");
       }
       return;
     }
@@ -917,11 +938,28 @@ public class ByokPreferencePage extends PreferencePage implements IWorkbenchPref
     dialog.open();
   }
 
+  private void openAddNvidiaNimUrlDialog() {
+    String providerName = ByokModelProvider.NVIDIA_NIM.getDisplayName();
+    String endpointUrl = ByokModelProvider.getNvidiaNimEndpoint();
+    // For NVIDIA NIM hosted API, we only need the API key, not the endpoint URL
+    AddApiKeyDialog dialog = new AddApiKeyDialog(getShell(), providerName, apiKey -> {
+      if (apiKey != null && StringUtils.isNotBlank(apiKey) && byokService != null) {
+        executeAsyncProviderOperation(providerName, byokService.configureNvidiaNim(apiKey),
+            "Failed to configure NVIDIA NIM endpoint");
+      }
+    });
+    dialog.open();
+  }
+
   private void onProviderExpanded(String providerName) {
     // If provider is first expanded, need to fetch models for this provider from remote site
     if (!remotelyLoadedProviders.contains(providerName)) {
-      boolean canFetch = ByokModelProvider.isOllama(providerName) ? byProviderUrls.containsKey(providerName)
-          : byProviderApiKeys.containsKey(providerName);
+      boolean canFetch;
+      if (ByokModelProvider.isOllama(providerName) || ByokModelProvider.isNvidiaNim(providerName)) {
+        canFetch = byProviderUrls.containsKey(providerName);
+      } else {
+        canFetch = byProviderApiKeys.containsKey(providerName);
+      }
       if (!canFetch) {
         return;
       }

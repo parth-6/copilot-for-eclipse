@@ -3,11 +3,13 @@
 
 package com.microsoft.copilot.eclipse.ui.chat.services;
 
+ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -44,6 +46,9 @@ class ByokServiceTests {
   private static final long WAIT_TIMEOUT_MS = 5000;
   private static final String OLLAMA_ENDPOINT = "http://localhost:11434";
   private static final String OLLAMA_PROVIDER = ByokModelProvider.OLLAMA.getDisplayName();
+  private static final String NVIDIA_NIM_PROVIDER = ByokModelProvider.getNvidiaNimProviderName();
+  private static final String NVIDIA_NIM_ENDPOINT = "https://integrate.api.nvidia.com/v1";
+  private static final String NVIDIA_API_KEY = "nvapi-test-key-12345";
 
   @Mock
   private CopilotLanguageServerConnection lsConnection;
@@ -95,7 +100,7 @@ class ByokServiceTests {
   @Test
   void testConfigureOllama_emptyDiscoveryRefreshesLocalModels() {
     when(lsConnection.saveByokProviderConfig(any())).thenReturn(completedStatus());
-    configureRefreshResponses(List.of());
+    configureRefreshResponses(List.of(), OLLAMA_PROVIDER, OLLAMA_ENDPOINT);
 
     byokService.configureOllama(OLLAMA_ENDPOINT).join();
 
@@ -110,7 +115,7 @@ class ByokServiceTests {
     discoveredModel.setModelId("qwen3.5:0.8b");
     discoveredModel.setRegistered(false);
     when(lsConnection.saveByokProviderConfig(any())).thenReturn(completedStatus());
-    configureRefreshResponses(List.of(discoveredModel));
+    configureRefreshResponses(List.of(discoveredModel), OLLAMA_PROVIDER, OLLAMA_ENDPOINT);
     when(lsConnection.saveByokModel(any())).thenReturn(completedStatus());
 
     byokService.configureOllama(OLLAMA_ENDPOINT).join();
@@ -123,7 +128,7 @@ class ByokServiceTests {
   @Test
   void testDeleteOllamaConfig_removesEndpointBeforeRefresh() {
     when(lsConnection.deleteByokProviderConfig(any())).thenReturn(completedStatus());
-    configureRefreshResponses(List.of());
+    configureRefreshResponses(List.of(), OLLAMA_PROVIDER, OLLAMA_ENDPOINT);
     byokService.loadProviderUrls().join();
     clearInvocations(preferencePage);
 
@@ -132,7 +137,7 @@ class ByokServiceTests {
     verify(preferencePage, timeout(WAIT_TIMEOUT_MS)).updateProviderUrlsDisplay(argThat(Map::isEmpty));
   }
 
-  private void configureRefreshResponses(List<ByokModel> discoveredModels) {
+  private void configureRefreshResponses(List<ByokModel> discoveredModels, String providerName, String endpointUrl) {
     when(lsConnection.listByokModels(any())).thenAnswer(invocation -> {
       ByokListModelResponse response = new ByokListModelResponse();
       response.setModels(discoveredModels);
@@ -142,7 +147,7 @@ class ByokServiceTests {
         .thenReturn(CompletableFuture.completedFuture(new ByokListApiKeyResponse(List.of())));
     when(lsConnection.listByokProviderConfigs(any(ByokListProviderConfigParams.class)))
         .thenReturn(CompletableFuture.completedFuture(new ByokListProviderConfigResponse(
-            List.of(new ByokProviderConfig(OLLAMA_PROVIDER, OLLAMA_ENDPOINT)))));
+            List.of(new ByokProviderConfig(providerName, endpointUrl)))));
   }
 
   private CompletableFuture<ByokStatusResponse> completedStatus() {
@@ -151,4 +156,76 @@ class ByokServiceTests {
     return CompletableFuture.completedFuture(response);
   }
 
+  @Test
+  void testConfigureNvidiaNim_success() {
+    when(lsConnection.saveByokCustomProviderConfig(any())).thenReturn(completedStatus());
+    configureRefreshResponses(List.of(), NVIDIA_NIM_PROVIDER, NVIDIA_NIM_ENDPOINT);
+    when(lsConnection.saveByokModel(any())).thenReturn(completedStatus());
+
+    byokService.configureNvidiaNim(NVIDIA_API_KEY).join();
+
+    verify(lsConnection).saveByokCustomProviderConfig(argThat(config ->
+      NVIDIA_NIM_PROVIDER.equals(config.providerName()) && NVIDIA_API_KEY.equals(config.apiKey())
+        && ByokModelProvider.NVIDIA_NIM.getDisplayName().equals(config.groupName())
+        && "chatCompletions".equals(config.apiType())));
+    verify(lsConnection, never()).saveByokApiKey(any());
+    verify(lsConnection, never()).saveByokProviderConfig(any());
+    ArgumentCaptor<ByokModel> modelCaptor = ArgumentCaptor.forClass(ByokModel.class);
+    verify(lsConnection).saveByokModel(modelCaptor.capture());
+    ByokModel model = modelCaptor.getValue();
+    assertEquals("nvidia/nemotron-3-ultra-550b-a55b", model.getModelId());
+    assertEquals(NVIDIA_NIM_ENDPOINT, model.getDeploymentUrl());
+    assertTrue(model.isRegistered());
+    assertTrue(model.isCustomModel());
+    assertEquals("Nemotron 3 Ultra 550B A55B", model.getModelCapabilities().getName());
+    assertEquals(900000, model.getModelCapabilities().getMaxInputTokens());
+    assertEquals(100000, model.getModelCapabilities().getMaxOutputTokens());
+    assertTrue(model.getModelCapabilities().isToolCalling());
+    assertTrue(!model.getModelCapabilities().isVision());
+  }
+
+  @Test
+  void testConfigureNvidiaNim_apiKeyFailureDoesNotSaveModel() {
+    when(lsConnection.saveByokCustomProviderConfig(any()))
+        .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("Invalid API key")));
+
+    assertThrows(CompletionException.class, () -> byokService.configureNvidiaNim(NVIDIA_API_KEY).join());
+
+    verify(lsConnection, never()).saveByokModel(any());
+  }
+
+  @Test
+  void testConfigureNvidiaNim_doesNotFetchModelsFromProvider() {
+    when(lsConnection.saveByokCustomProviderConfig(any())).thenReturn(completedStatus());
+    configureRefreshResponses(List.of(), NVIDIA_NIM_PROVIDER, NVIDIA_NIM_ENDPOINT);
+    when(lsConnection.saveByokModel(any())).thenReturn(completedStatus());
+
+    byokService.configureNvidiaNim(NVIDIA_API_KEY).join();
+
+    verify(lsConnection, times(1)).listByokModels(any());
+    verify(lsConnection).listByokModels(argThat(params -> Boolean.FALSE.equals(params.getEnableFetchUrl())));
+    verify(lsConnection, never()).listByokModels(argThat(params -> Boolean.TRUE.equals(params.getEnableFetchUrl())));
+  }
+
+  @Test
+  void testDeleteNvidiaNimConfig_removesModelAndApiKey() {
+    when(lsConnection.deleteByokModel(any())).thenReturn(completedStatus());
+    when(lsConnection.deleteByokApiKey(any())).thenReturn(completedStatus());
+    when(lsConnection.listByokApiKeys(any(ByokApiKey.class)))
+        .thenReturn(CompletableFuture.completedFuture(new ByokListApiKeyResponse(List.of())));
+    when(lsConnection.listByokProviderConfigs(any(ByokListProviderConfigParams.class)))
+        .thenReturn(CompletableFuture.completedFuture(new ByokListProviderConfigResponse(List.of())));
+    when(lsConnection.listByokModels(any())).thenReturn(CompletableFuture.completedFuture(new ByokListModelResponse()));
+    byokService.loadProviderUrls().join();
+    clearInvocations(preferencePage);
+
+    byokService.deleteNvidiaNimConfig().join();
+
+    verify(lsConnection).deleteByokModel(argThat(model ->
+        NVIDIA_NIM_PROVIDER.equals(model.getProviderName())
+            && "nvidia/nemotron-3-ultra-550b-a55b".equals(model.getModelId())));
+    verify(lsConnection).deleteByokApiKey(argThat(key -> NVIDIA_NIM_PROVIDER.equals(key.getProviderName())));
+    verify(preferencePage, timeout(WAIT_TIMEOUT_MS).atLeastOnce())
+      .updateProviderUrlsDisplay(argThat(Map::isEmpty));
+  }
 }

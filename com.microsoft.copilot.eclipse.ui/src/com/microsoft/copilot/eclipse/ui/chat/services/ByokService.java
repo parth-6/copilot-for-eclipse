@@ -28,10 +28,12 @@ import com.microsoft.copilot.eclipse.core.events.CopilotEventConstants;
 import com.microsoft.copilot.eclipse.core.lsp.CopilotLanguageServerConnection;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.DidChangeFeatureFlagsParams;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokApiKey;
+import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokCustomProviderConfig;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokDeleteProviderConfigParams;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokListModelParams;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokListProviderConfigParams;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokModel;
+import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokModelCapabilities;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokModelProvider;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokProviderConfig;
 import com.microsoft.copilot.eclipse.ui.preferences.ByokPreferencePage;
@@ -230,6 +232,69 @@ public class ByokService extends ChatBaseService {
         });
   }
 
+  /**
+   * Save the NVIDIA NIM API key and register its fixed Nemotron model.
+   */
+  public CompletableFuture<Void> configureNvidiaNim(String apiKey) {
+    String providerName = ByokModelProvider.getNvidiaNimProviderName();
+    ByokModel model = new ByokModel();
+    model.setProviderName(providerName);
+    model.setModelId("nvidia/nemotron-3-ultra-550b-a55b");
+    model.setRegistered(true);
+    model.setCustomModel(true);
+    model.setDeploymentUrl(ByokModelProvider.getNvidiaNimEndpoint());
+    ByokModelCapabilities capabilities = new ByokModelCapabilities();
+    capabilities.setName("Nemotron 3 Ultra 550B A55B");
+    capabilities.setToolCalling(true);
+    capabilities.setVision(false);
+    capabilities.setMaxInputTokens(900000);
+    capabilities.setMaxOutputTokens(100000);
+    model.setModelCapabilities(capabilities);
+
+    ByokCustomProviderConfig providerConfig = new ByokCustomProviderConfig(providerName, apiKey,
+        ByokModelProvider.NVIDIA_NIM.getDisplayName(), "chatCompletions");
+    return lsConnection.saveByokCustomProviderConfig(providerConfig).thenCompose(configResponse -> {
+      if (!configResponse.isSuccess()) {
+        String message = configResponse.getMessage() != null ? configResponse.getMessage()
+            : "Failed to configure NVIDIA NIM provider";
+        return CompletableFuture.failedFuture(new IllegalStateException(message));
+      }
+      return lsConnection.saveByokModel(model).thenCompose(modelResponse -> {
+        if (!modelResponse.isSuccess()) {
+          String message = modelResponse.getMessage() != null ? modelResponse.getMessage()
+              : "Failed to save NVIDIA NIM model";
+          return CompletableFuture.failedFuture(new IllegalStateException(message));
+        }
+        return refreshData();
+      });
+    });
+  }
+
+  /**
+   * Delete the stored NVIDIA NIM model and API key.
+   */
+  public CompletableFuture<Void> deleteNvidiaNimConfig() {
+    String providerName = ByokModelProvider.getNvidiaNimProviderName();
+    ByokModel model = new ByokModel();
+    model.setProviderName(providerName);
+    model.setModelId("nvidia/nemotron-3-ultra-550b-a55b");
+    return lsConnection.deleteByokModel(model).thenCompose(modelResponse -> {
+      if (!modelResponse.isSuccess()) {
+        String message = modelResponse.getMessage() != null ? modelResponse.getMessage()
+            : "Failed to delete NVIDIA NIM model";
+        return CompletableFuture.failedFuture(new IllegalStateException(message));
+      }
+      return lsConnection.deleteByokApiKey(new ByokApiKey(providerName, null));
+    }).thenCompose(keyResponse -> {
+      if (!keyResponse.isSuccess()) {
+        String message = keyResponse.getMessage() != null ? keyResponse.getMessage()
+            : "Failed to delete NVIDIA NIM API key";
+        return CompletableFuture.failedFuture(new IllegalStateException(message));
+      }
+      return refreshData();
+    });
+  }
+
   private void updateProviderUrl(String providerName, String endpointUrl) {
     ensureRealm(() -> {
       Map<String, String> providerUrls = new HashMap<>(providerUrlsObservable.getValue());
@@ -291,7 +356,8 @@ public class ByokService extends ChatBaseService {
         }
         // Special Case: OpenRouter has too many default models(about 180) so skip registration.
         List<ByokModel> fetched = listResp.getModels();
-        boolean needRegister = !ByokModelProvider.OPENROUTER.getDisplayName().equals(providerName);
+        boolean needRegister = !ByokModelProvider.OPENROUTER.getDisplayName().equals(providerName)
+            && !ByokModelProvider.isNvidiaNim(providerName);
         fetched.forEach(m -> m.setRegistered(needRegister));
         return batchSaveByokModels(fetched).thenCompose(v -> refreshData());
       });
@@ -343,7 +409,7 @@ public class ByokService extends ChatBaseService {
       return loadLocalModels();
     }
 
-    if (ByokModelProvider.isOllama(providerName)) {
+    if (ByokModelProvider.isOllama(providerName) || ByokModelProvider.isNvidiaNim(providerName)) {
       AtomicBoolean hasEndpoint = new AtomicBoolean(false);
       ensureRealm(() -> {
         Map<String, String> currentProviderUrls = providerUrlsObservable.getValue();
@@ -424,7 +490,9 @@ public class ByokService extends ChatBaseService {
     List<ByokModel> toAdd = new ArrayList<>();
     for (ByokModel remoteModel : remoteModels) {
       if (!localIds.contains(remoteModel.getModelId())) {
-        remoteModel.setRegistered(ByokModelProvider.isOllama(providerName));
+        boolean shouldRegister = ByokModelProvider.isOllama(providerName)
+            || ByokModelProvider.isNvidiaNim(providerName);
+        remoteModel.setRegistered(shouldRegister);
         toAdd.add(remoteModel);
       }
     }

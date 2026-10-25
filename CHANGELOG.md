@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.21.0
 ### Added
 - Support Ollama as a custom (BYOK) model provider. [#93](https://github.com/microsoft/copilot-for-eclipse/issues/93)
+- Support NVIDIA NIM as a custom (BYOK) model provider with OpenAI-compatible API.
 - Support group policy for Auto model. [#305](https://github.com/microsoft/copilot-for-eclipse/issues/305)
 - Make skills generally available. [#302](https://github.com/microsoft/copilot-for-eclipse/issues/302)
 - Add unique accessible names to chat controls. [#78](https://github.com/microsoft/copilot-for-eclipse/issues/78)

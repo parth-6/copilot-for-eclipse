@@ -130,6 +130,9 @@ public class AddApiKeyDialog extends TrayDialog {
     if (ByokModelProvider.isAzure(providerName)) {
       return base + "azure";
     }
+    if (ByokModelProvider.isNvidiaNim(providerName)) {
+      return base + "nvidiaNim";
+    }
     return base + "openaiCompatible";
   }
 

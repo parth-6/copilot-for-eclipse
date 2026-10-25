@@ -23,9 +23,9 @@ Entry points exercised:
   com.microsoft.copilot.eclipse.ui.preferences.ByokPreferencePage`.
 
 Providers covered (`ByokModelProvider`): `Azure`, `OpenAI`, `Gemini`, `Groq`,
-`OpenRouter`, `Anthropic`, `Ollama`. Azure has per-model deployment credentials.
+`OpenRouter`, `Anthropic`, `Ollama`, `NVIDIA NIM`. Azure has per-model deployment credentials.
 Ollama has no API key and instead uses a provider-level endpoint URL, defaulting
-to `http://localhost:11434`.
+to `http://localhost:11434`. NVIDIA NIM uses an OpenAI-compatible API with an NGC API key.
 
 Not exercised in this plan (separate scenarios):
 - Actually issuing chat completions through a registered BYOK model — that's

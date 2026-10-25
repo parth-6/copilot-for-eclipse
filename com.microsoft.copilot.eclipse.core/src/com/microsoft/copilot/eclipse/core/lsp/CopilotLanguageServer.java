@@ -52,6 +52,7 @@ import com.microsoft.copilot.eclipse.core.lsp.protocol.UpdateConversationToolsSt
 import com.microsoft.copilot.eclipse.core.lsp.protocol.UpdateMcpToolsStatusParams;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.WorkspaceFoldersParams;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokApiKey;
+import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokCustomProviderConfig;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokDeleteProviderConfigParams;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokListApiKeyResponse;
 import com.microsoft.copilot.eclipse.core.lsp.protocol.byok.ByokListModelParams;
@@ -267,6 +268,12 @@ public interface CopilotLanguageServer extends LanguageServer {
    */
   @JsonRequest("copilot/byok/saveApiKey")
   CompletableFuture<ByokStatusResponse> saveByokApiKey(ByokApiKey apiKey);
+
+  /**
+   * Save a custom endpoint BYOK provider configuration.
+   */
+  @JsonRequest("copilot/byok/saveCustomProviderConfig")
+  CompletableFuture<ByokStatusResponse> saveByokCustomProviderConfig(ByokCustomProviderConfig providerConfig);
 
   /**
    * Delete BYOK API key.

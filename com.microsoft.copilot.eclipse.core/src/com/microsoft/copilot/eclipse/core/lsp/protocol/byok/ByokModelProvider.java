@@ -13,7 +13,8 @@ public enum ByokModelProvider {
   GROQ("Groq"),
   OPENROUTER("OpenRouter"),
   ANTHROPIC("Anthropic"),
-  OLLAMA("Ollama");
+  OLLAMA("Ollama"),
+  NVIDIA_NIM("NVIDIA NIM");
 
 
   private final String displayName;
@@ -39,6 +40,28 @@ public enum ByokModelProvider {
    */
   public static boolean isOllama(String providerDisplayName) {
     return OLLAMA.getDisplayName().equals(providerDisplayName);
+  }
+
+  /**
+   * Utility to check if a provider display name corresponds to NVIDIA NIM.
+   */
+  public static boolean isNvidiaNim(String providerDisplayName) {
+    return NVIDIA_NIM.getDisplayName().equals(providerDisplayName)
+        || getNvidiaNimProviderName().equals(providerDisplayName);
+  }
+
+  /**
+   * Returns the provider key used by the bundled agent's custom endpoint configuration.
+   */
+  public static String getNvidiaNimProviderName() {
+    return "NvidiaNim";
+  }
+
+  /**
+   * Returns the fixed endpoint URL for NVIDIA NIM hosted API.
+   */
+  public static String getNvidiaNimEndpoint() {
+    return "https://integrate.api.nvidia.com/v1";
   }
 
   /**

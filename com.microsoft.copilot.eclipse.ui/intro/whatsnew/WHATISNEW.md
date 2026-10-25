@@ -27,6 +27,11 @@ You can now connect Ollama as a custom Bring Your Own Key (BYOK) model provider 
 
 ---
 
+### Use NVIDIA NIM Models with BYOK
+You can now connect NVIDIA NIM as a custom Bring Your Own Key (BYOK) model provider. NVIDIA NIM provides OpenAI-compatible API endpoints for optimized AI models. Get your API key from the [NVIDIA NGC](https://catalog.ngc.nvidia.com) website.
+
+---
+
 ### Agent Skills Are Generally Available
 Agent Skills are now generally available. Skills give Copilot reusable instructions and resources for specialized tasks, helping Agent Mode follow consistent workflows for your project.
 
